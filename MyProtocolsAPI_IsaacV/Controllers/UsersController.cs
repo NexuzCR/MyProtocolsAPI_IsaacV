@@ -4,13 +4,18 @@ using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Razor.Language.Extensions;
 using Microsoft.EntityFrameworkCore;
+using MyProtocolsAPI_IsaacV.Attributes;
 using MyProtocolsAPI_IsaacV.Models;
+using MyProtocolsAPI_IsaacV.ModelsDTOs;
+
 
 namespace MyProtocolsAPI_IsaacV.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
+   // [ApiKey]
     public class UsersController : ControllerBase
     {
         private readonly MyProtocolsDBContext _context;
@@ -19,6 +24,26 @@ namespace MyProtocolsAPI_IsaacV.Controllers
         {
             _context = context;
         }
+        //Este get valida el usuario que quiere ingresar en la app.
+        //GET: api/users
+        [HttpGet("ValidateLogin")]
+        public async Task<ActionResult<User>> validateLogin(string username, string password)
+        {
+            var user = await _context.Users.SingleOrDefaultAsync(e => e.Email.Equals(username) && e.Password == password);
+            
+            if (user == null)
+            {
+                return NotFound();
+            }
+            return Ok(user);
+
+
+        }
+
+
+
+
+
 
         // GET: api/Users
         [HttpGet]
@@ -49,17 +74,94 @@ namespace MyProtocolsAPI_IsaacV.Controllers
             return user;
         }
 
+
+        [HttpGet("GetUserInfoByEmail")]
+        public ActionResult<IEnumerable<UserDTO>> GetUserInfoByEmail(string Pemail)
+        {
+            // aca creamos un linq que combina informacion de dos entidades
+            //(user inner join userRole) y la agrega en el objeto dto de ususarios
+
+            var query = (from u in _context.Users
+                         join ur in _context.UserRoles on
+                         u.UserRoleId equals ur.UserRoleId
+                         where u.Email == Pemail && u.Active == true &&
+                         u.IsBlocked == false
+                         select new
+                         {
+                             idusuario = u.UserId,
+                             correo = u.Email,
+                             contrasennia = u.Password,
+                             nombre = u.Name,
+                             correoreaspaldo = u.BackUpEmail,
+                             telefono = u.PhoneNumber,
+                             direccion = u.Address,
+                             activo = u.Active,
+                             establoqueado = u.IsBlocked,
+                             idrol = ur.UserRoleId,
+                             descripcionrol = ur.Description
+
+                         }).ToList();
+
+                //creamos un objeto del tipo que retorna la funcion
+                List<UserDTO> list = new List<UserDTO>();
+            foreach (var item in query) 
+            {
+                UserDTO NewItem = new UserDTO()
+                {
+                    IDUsuario = item.idusuario,
+                    Correo = item.correo,
+                    Contrasennia = item.contrasennia,
+                    Nombre = item.nombre,
+                    CorreoRespaldo = item.correoreaspaldo,
+                    Telefono = item.telefono,
+                    Direccion = item.direccion,
+                    Activo = item.activo,
+                    EstaBloqueado = item.establoqueado,
+                    IDRol = item.idrol, 
+                    DescripcionRol = item.descripcionrol
+  
+                };
+                list.Add(NewItem);
+
+               
+            }
+
+            if (list == null) { return NotFound(); }
+
+            return list;
+
+        }
+
+
+
         // PUT: api/Users/5
         // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
         [HttpPut("{id}")]
-        public async Task<IActionResult> PutUser(int id, User user)
+        public async Task<IActionResult> PutUser(int id, UserDTO user)
         {
-            if (id != user.UserId)
+            if (id != user.IDUsuario)
             {
                 return BadRequest();
             }
 
-            _context.Entry(user).State = EntityState.Modified;
+            // tenemos que hacer la conversion entre el dto que llega en el formato 
+            //json (en el header) y el objeto que entity framework entiende que es dee tipo user
+
+            User? NewEFUser = GetUserByID(id);
+            
+            if (NewEFUser != null)
+            {
+                NewEFUser.Email = user.Correo;
+                NewEFUser.Name = user.Nombre;
+                NewEFUser.BackUpEmail = user.CorreoRespaldo;
+                NewEFUser.PhoneNumber = user.Telefono;
+                NewEFUser.Address = user.Direccion;
+
+                _context.Entry(NewEFUser).State = EntityState.Modified;
+            }
+           
+
+            
 
             try
             {
@@ -77,7 +179,7 @@ namespace MyProtocolsAPI_IsaacV.Controllers
                 }
             }
 
-            return NoContent();
+            return Ok();
         }
 
         // POST: api/Users
@@ -95,29 +197,19 @@ namespace MyProtocolsAPI_IsaacV.Controllers
             return CreatedAtAction("GetUser", new { id = user.UserId }, user);
         }
 
-        // DELETE: api/Users/5
-        [HttpDelete("{id}")]
-        public async Task<IActionResult> DeleteUser(int id)
-        {
-            if (_context.Users == null)
-            {
-                return NotFound();
-            }
-            var user = await _context.Users.FindAsync(id);
-            if (user == null)
-            {
-                return NotFound();
-            }
-
-            _context.Users.Remove(user);
-            await _context.SaveChangesAsync();
-
-            return NoContent();
-        }
 
         private bool UserExists(int id)
         {
             return (_context.Users?.Any(e => e.UserId == id)).GetValueOrDefault();
         }
+
+        private User? GetUserByID(int id)
+        {
+            var user = _context.Users?.Find(id);
+            return user;
+        }
+
+
+
     }
 }
